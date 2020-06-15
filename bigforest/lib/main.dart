@@ -10,8 +10,10 @@ import 'dart:convert';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:charts_flutter/flutter.dart' as charts;
-import 'package:provider/provider.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:table_calendar/table_calendar.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
@@ -60,220 +62,268 @@ Future<void> main() async {
     }
     selectNotificationSubject.add(payload);
   });
-  runApp(MyApp());
+  initializeDateFormatting().then((_) => runApp(MyApp()));
 }
 
-
-
 class MyApp extends StatelessWidget{
-  MyApp({Key key}) : super(key: key);
+  MyApp({Key key}):super(key: key);
   @override
   Widget build(BuildContext context){
-    return ChangeNotifierProvider<Doze>(
-      create: (_) => Doze(),
-      child: MyHomePage(),
+    return MaterialApp(
+      title: 'doz',
+      home: ChartScreen(),
     );
   }
 }
-class MyHomePage extends StatelessWidget {
+
+class ChartScreen extends StatefulWidget{
+  ChartScreen({Key key}):super(key: key);
+  @override
+  ChartScreenState createState() => ChartScreenState();
+}
+
+class ChartScreenState extends State<ChartScreen> with TickerProviderStateMixin{
+  bool isConnected = false;
+  BluetoothConnection connection;
+  IconData bluetoothIcon = Icons.bluetooth;
+  final String address = '24:6F:28:5F:05:86';
+  List<DozingPerHour> dozingData;
+  CalendarController _controller;
+  Future connectDevice() async {
+    if(isConnected){
+      connection.finish();
+    }
+    isConnected = !isConnected;
+    if(isConnected){
+      connection = await BluetoothConnection.toAddress(address);
+    }
+    setState(bluetooth()); // bluetoothのアイコンを更新
+  }
+  bluetooth(){
+    if(isConnected){
+      bluetoothIcon = Icons.bluetooth_connected;
+    } else {
+      bluetoothIcon = Icons.bluetooth;
+    }
+  }
+
+  Future getData(int year, int month, int day) async {
+    dozingData = [];
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    setState((){
+      for(int i = 1; i <= 24; i++){
+        dozingData.add(DozingPerHour(i.toString(), prefs.getInt('${year}/${month}/${day}/${i}')??0, Colors.blue));
+      }
+    });
+  }
+
+  @override void initState(){
+    super.initState();
+    _controller = CalendarController();
+    DateTime _now = DateTime.now();
+    dozingData = [];
+    getData(_now.year, _now.month, _now.day);
+    assert(_controller != null);
+  }
+
+
+  @override
+  void dispose(){
+    _controller.dispose();
+  }
+
   @override
   Widget build(BuildContext context){
-    final chartState = Provider.of<Doze>(context, listen: false);
-    return MaterialApp(
-      title:'Doz',
-      home:Scaffold(
-          appBar: AppBar(
-          title: Text('Doz'),
-        ),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              Consumer<Doze>(
-                builder: (context, chart, child){
-                  return chartWidget(chart);
-                }
-              ),
-              Consumer<Doze>(
-                builder: (context, chart, child){
-                  return Text(chart.connectionState);
-                },
-              )
-            ],
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('寝落ち状況'),
+        actions: <Widget>[
+          IconButton(
+            icon: Icon(Icons.lightbulb_outline),
+            onPressed: () async {
+              const url = 'https://mezame-project.jp/awake/';
+              if(await canLaunch(url)){
+                await launch(url);
+              }
+            }
           ),
-        ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: chartState.start,// ここを本番はstartにする
-          tooltip: 'connecetToDevice',
-          child: Consumer<Doze>(
-            builder: (context, chart, child){
-              if(chart.connectionState == 'connected!'){
-                return Icon(Icons.bluetooth_connected);
-              } else if(chart.connectionState == 'not connected') {
-                return Icon(Icons.bluetooth);
+          IconButton(
+            icon: Icon(bluetoothIcon),
+            onPressed: () async {
+              await connectDevice(); // デバイスに接続
+              if(isConnected){
+                connection.input.listen((Uint8List data) async {
+                  showNotification();
+                  SharedPreferences prefs = await SharedPreferences.getInstance();
+                  bool doz = await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => ConfirmScreen(),
+                    ),
+                  );
+                  if(doz == true){
+                    setState((){
+                      DateTime _now = DateTime.now();
+                      dozingData[_now.hour - 1] = DozingPerHour(_now.hour.toString(), (prefs.getInt('${_now.year}/${_now.month}/${_now.day}/${_now.hour}')??0) + 1, Colors.blue);
+                      saveData(_now.year, _now.month, _now.day, _now.hour, (prefs.getInt('${_now.year}/${_now.month}/${_now.day}/${_now.hour}')??0) + 1);
+                    });
+                  }
+                  //接続を解除
+                  if (ascii.decode(data).contains('!')) {
+                    connection.finish();
+                  }
+                }).onDone(() {
+                  // 接続を解除したら
+                });
               }
             },
           ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        child: Center(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              TableCalendar(
+                calendarController: _controller,
+                onDaySelected: (date, events) async {
+                  dozingData = [];
+                  SharedPreferences prefs = await SharedPreferences.getInstance();
+                  setState((){
+                    for(int i = 1; i <= 24; i++){
+                    dozingData.add(DozingPerHour(i.toString(), prefs.getInt('${date.year}/${date.month}/${date.day}/${i}')??0, Colors.blue));
+                  }
+                  });
+                },
+              ),
+              Padding(
+                padding: EdgeInsets.all(32.0),
+                child: SizedBox(
+                  height: 200.0,
+                  child: charts.BarChart(
+                    [
+                      charts.Series(
+                        id: 'Dozed Time',
+                        domainFn: (dynamic dozingData, _) => dozingData.day,
+                        measureFn: (dynamic dozingData, _) => dozingData.dozingTime,
+                        colorFn: (dynamic dozingData, _) => dozingData.color,
+                        data: dozingData,
+                      ),
+                    ],
+                    animate: false,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        child: Icon(Icons.add),
+        onPressed: ()async{
+          SharedPreferences prefs = await SharedPreferences.getInstance();
+          bool doz = await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => ConfirmScreen(),
+                    ),
+                  );
+                  if(doz == true){
+                    DateTime _now = DateTime.now();
+                    setState((){
+                      if(_now.year == _controller.selectedDay.year && _now.month == _controller.selectedDay.month && _now.day == _controller.selectedDay.day){
+                        dozingData[_now.hour - 1] = DozingPerHour(_now.hour.toString(), dozingData[_now.hour - 1].dozingTime + 1, Colors.blue);
+                      }
+                    });
+                    saveData(_now.year, _now.month, _now.day, _now.hour, (prefs.getInt('${_now.year}/${_now.month}/${_now.day}/${_now.hour}')??0) + 1);
+          }
+        }
+        /*() async {
+          SharedPreferences prefs = await SharedPreferences.getInstance();
+          DateTime _now = DateTime.now();
+          if(_now.year == _controller.selectedDay.year && _now.month == _controller.selectedDay.month && _now.day == _controller.selectedDay.day){
+            setState((){
+              dozingData[_now.hour - 1] = DozingPerHour(_now.hour.toString(), dozingData[_now.hour - 1].dozingTime + 1, Colors.blue);
+            });
+          }
+          saveData(_now.year, _now.month, _now.day, _now.hour, (prefs.getInt('${_now.year}/${_now.month}/${_now.day}/${_now.hour}')??0) + 1);
+        }*/,
+      ),
+    );
+  }
+}
+
+class ConfirmScreen extends StatelessWidget {
+  @override
+  Widget build(BuildContext context){
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('確認'),
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back),
+          onPressed: (){
+            Navigator.of(context).pop(false);
+          },
+        ),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Text('寝落ちしましたか？'),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                Center(
+                  widthFactor: 1.5,
+                  child: RaisedButton(
+                    child: Text('はい'),
+                    onPressed: (){
+                      Navigator.of(context).pop(true);
+                    },
+                  ),
+                ),
+                Center(
+                  widthFactor: 1.5,
+                  child: RaisedButton(
+                    child: Text('いいえ'),
+                    onPressed: (){
+                      Navigator.of(context).pop(false);
+                    },
+                  ),
+                ),
+              ],
+            )
+          ],
         ),
       ),
     );
   }
 }
 
-Widget chartWidget(Doze data){
-  var series = [
-    charts.Series(
-      id: 'Dozed Time',
-      domainFn: (DozingPerDay dozingData, _) => dozingData.day,
-      measureFn: (DozingPerDay dozingData, _) => dozingData.dozingTime,
-      colorFn: (DozingPerDay dozingData, _) => dozingData.color,
-      data: data.dozingData,
-    ),
-  ];
-
-  var chart = charts.BarChart(
-    series,
-    animate: true,
-  );
-
-  return Padding(
-      padding: EdgeInsets.all(32.0),
-      child: SizedBox(
-      height: 200.0,
-      child: chart,
-    )
-  );
+Future<void> saveData(int year, int month, int day, int hour, int value) async {
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  prefs.setInt('${year}/${month}/${day}/${hour}', value);
 }
 
-class DozingPerDay extends ChangeNotifier {
+
+
+
+
+class DozingPerHour extends ChangeNotifier {
   final String day;
   final int dozingTime;
   final charts.Color color;
 
-  DozingPerDay(this.day, this.dozingTime, Color color)
+  DozingPerHour(this.day, this.dozingTime, Color color)
     :this.color = charts.Color(
       r: color.red, g: color.green, b: color.blue, a:color.alpha
     );
 }
-class Doze extends ChangeNotifier {
-  // アドレスは後で変更する
-  List<DozingPerDay> _dozingData = [
-    DozingPerDay('Mn', 0, Colors.blue),
-    DozingPerDay('Tu', 0, Colors.blue),
-    DozingPerDay('Wd', 0, Colors.blue),
-    DozingPerDay('Th', 0, Colors.blue),
-    DozingPerDay('Fr', 0, Colors.blue),
-    DozingPerDay('Sa', 0, Colors.blue),
-    DozingPerDay('Su', 0, Colors.blue),
-  ];
-  List<DozingPerDay> get dozingData => _dozingData;
-  String connectionState = 'not connected';
-
-  Doze(){
-    setupData();
-    //assert(_dozingData != null);
-    //start();
-  }
-
-  void start() async {
-    final String address = '24:0A:C4:08:73:76';
-    BluetoothConnection connection = await BluetoothConnection.toAddress(address);
-    connectionState = 'connected!';
-    notifyListeners();
-      try{
-        connection.input.listen((Uint8List data) {
-        updateData();
-          //接続を解除
-        if (ascii.decode(data).contains('!')) {
-          connection.finish();
-        }
-      }).onDone(() {
-        // 接続を解除したら
-        connectionState = 'not connected';
-        notifyListeners();
-      });
-    }catch(exception){
-      connectionState = 'somethig is wrong';
-      notifyListeners();
-    }
-  }
 
 
-  void setupData() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    if(DateTime.now().weekday == DateTime.monday && prefs.getInt('today') != DateTime.monday){
-      prefs.remove('monday');
-      prefs.remove('tuesday');
-      prefs.remove('wednesday');
-      prefs.remove('thursday');
-      prefs.remove('friday');
-      prefs.remove('saturday');
-      prefs.remove('sunday');
-    }
-    _dozingData = [
-      DozingPerDay('Mn', prefs.getInt(DateTime.monday.toString()) ?? 0, Colors.blue),
-      DozingPerDay('Tu', prefs.getInt(DateTime.tuesday.toString()) ?? 0, Colors.blue),
-      DozingPerDay('Wd', prefs.getInt(DateTime.wednesday.toString()) ?? 0, Colors.blue),
-      DozingPerDay('Th', prefs.getInt(DateTime.thursday.toString()) ?? 0, Colors.blue),
-      DozingPerDay('Fr', prefs.getInt(DateTime.friday.toString()) ?? 0, Colors.blue),
-      DozingPerDay('Sa', prefs.getInt(DateTime.saturday.toString()) ?? 0, Colors.blue),
-      DozingPerDay('Su', prefs.getInt(DateTime.sunday.toString()) ?? 0, Colors.blue),
-    ];
-    notifyListeners();
-    prefs.setInt('today', DateTime.now().weekday);
-  }
 
-  void updateData() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    if(DateTime.now().weekday == DateTime.monday && prefs.getInt('today') != DateTime.monday){
-      prefs.remove(DateTime.monday.toString());
-      prefs.remove(DateTime.tuesday.toString());
-      prefs.remove(DateTime.wednesday.toString());
-      prefs.remove(DateTime.thursday.toString());
-      prefs.remove(DateTime.friday.toString());
-      prefs.remove(DateTime.saturday.toString());
-      prefs.remove(DateTime.sunday.toString());
-
-      _dozingData = [
-        DozingPerDay('Mn', prefs.getInt(DateTime.monday.toString()) ?? 0, Colors.blue),
-        DozingPerDay('Tu', prefs.getInt(DateTime.tuesday.toString()) ?? 0, Colors.blue),
-        DozingPerDay('Wd', prefs.getInt(DateTime.wednesday.toString()) ?? 0, Colors.blue),
-        DozingPerDay('Th', prefs.getInt(DateTime.thursday.toString()) ?? 0, Colors.blue),
-        DozingPerDay('Fr', prefs.getInt(DateTime.friday.toString()) ?? 0, Colors.blue),
-        DozingPerDay('Sa', prefs.getInt(DateTime.saturday.toString()) ?? 0, Colors.blue),
-        DozingPerDay('Su', prefs.getInt(DateTime.sunday.toString()) ?? 0, Colors.blue),
-      ];
-    }
-    int num = prefs.getInt(DateTime.now().weekday.toString()) ?? 0;
-    prefs.setInt(DateTime.now().weekday.toString(), num + 1);
-    switch(DateTime.now().weekday){
-      case DateTime.monday:
-      _dozingData[0] = DozingPerDay('Mn', num + 1, Colors.blue);
-      break;
-      case DateTime.tuesday:
-      _dozingData[1] = DozingPerDay('Tu', num + 1, Colors.blue);
-      break;
-      case DateTime.wednesday:
-      _dozingData[2] = DozingPerDay('Wd', num + 1, Colors.blue);
-      break;
-      case DateTime.thursday:
-      _dozingData[3] = DozingPerDay('Th', num + 1, Colors.blue);
-      break;
-      case DateTime.friday:
-      _dozingData[4] = DozingPerDay('Fr', num + 1, Colors.blue);
-      break;
-      case DateTime.saturday:
-      _dozingData[5] = DozingPerDay('Sa', num + 1, Colors.blue);
-      break;
-      case DateTime.sunday:
-      _dozingData[6] = DozingPerDay('Su', num + 1, Colors.blue);
-      break;
-    }
-    notifyListeners();
-    prefs.setInt('today', DateTime.now().weekday);
-    await showNotification();
-  }
-}
 
 Future<void> showNotification() async {
     var androidPlatformChannelSpecifics = AndroidNotificationDetails(
@@ -283,6 +333,6 @@ Future<void> showNotification() async {
     var platformChannelSpecifics = NotificationDetails(
         androidPlatformChannelSpecifics, iOSPlatformChannelSpecifics);
     await flutterLocalNotificationsPlugin.show(
-        0, 'bigforest', '寝落ちしています。起きてください', platformChannelSpecifics,
+        0, 'bigforest', '寝落ちしたかもしれません。起きてください。', platformChannelSpecifics,
         payload: 'Default_Sound');
 }
