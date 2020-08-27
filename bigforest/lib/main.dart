@@ -65,10 +65,10 @@ Future<void> main() async {
   initializeDateFormatting().then((_) => runApp(MyApp()));
 }
 
-class MyApp extends StatelessWidget{
-  MyApp({Key key}):super(key: key);
+class MyApp extends StatelessWidget {
+  MyApp({Key key}) : super(key: key);
   @override
-  Widget build(BuildContext context){
+  Widget build(BuildContext context) {
     return MaterialApp(
       title: 'doz',
       home: ChartScreen(),
@@ -76,13 +76,14 @@ class MyApp extends StatelessWidget{
   }
 }
 
-class ChartScreen extends StatefulWidget{
-  ChartScreen({Key key}):super(key: key);
+class ChartScreen extends StatefulWidget {
+  ChartScreen({Key key}) : super(key: key);
   @override
   ChartScreenState createState() => ChartScreenState();
 }
 
-class ChartScreenState extends State<ChartScreen> with TickerProviderStateMixin{
+class ChartScreenState extends State<ChartScreen>
+    with TickerProviderStateMixin {
   bool isConnected = false;
   BluetoothConnection connection;
   IconData bluetoothIcon = Icons.bluetooth;
@@ -90,34 +91,46 @@ class ChartScreenState extends State<ChartScreen> with TickerProviderStateMixin{
   List<DozingPerHour> dozingData;
   CalendarController _controller;
   Future connectDevice() async {
-    if(isConnected){
+    if (isConnected) {
       connection.finish();
     }
     isConnected = !isConnected;
-    if(isConnected){
+    if (isConnected) {
       connection = await BluetoothConnection.toAddress(address);
+      connection.output.add(Uint8List.fromList([0]));
     }
-    setState(bluetooth()); // bluetoothのアイコンを更新
+    setState(() {
+      if (isConnected) {
+        bluetoothIcon = Icons.bluetooth_connected;
+      } else {
+        bluetoothIcon = Icons.bluetooth;
+      }
+      print('更新');
+    }); // bluetoothのアイコンを更新
   }
-  bluetooth(){
-    if(isConnected){
+
+  bluetooth() {
+    if (isConnected) {
       bluetoothIcon = Icons.bluetooth_connected;
     } else {
       bluetoothIcon = Icons.bluetooth;
     }
+    print('更新');
   }
 
   Future getData(int year, int month, int day) async {
     dozingData = [];
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    setState((){
-      for(int i = 1; i <= 24; i++){
-        dozingData.add(DozingPerHour(i.toString(), prefs.getInt('${year}/${month}/${day}/${i}')??0, Colors.blue));
+    setState(() {
+      for (int i = 1; i <= 24; i++) {
+        dozingData.add(DozingPerHour(i.toString(),
+            prefs.getInt('${year}/${month}/${day}/${i}') ?? 0, Colors.blue));
       }
     });
   }
 
-  @override void initState(){
+  @override
+  void initState() {
     super.initState();
     _controller = CalendarController();
     DateTime _now = DateTime.now();
@@ -126,45 +139,58 @@ class ChartScreenState extends State<ChartScreen> with TickerProviderStateMixin{
     assert(_controller != null);
   }
 
-
   @override
-  void dispose(){
+  void dispose() {
     _controller.dispose();
   }
 
   @override
-  Widget build(BuildContext context){
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('寝落ち状況'),
         actions: <Widget>[
           IconButton(
-            icon: Icon(Icons.lightbulb_outline),
-            onPressed: () async {
-              const url = 'https://mezame-project.jp/awake/';
-              if(await canLaunch(url)){
-                await launch(url);
-              }
-            }
-          ),
+              icon: Icon(Icons.lightbulb_outline),
+              onPressed: () async {
+                const url = 'https://mezame-project.jp/awake/';
+                if (await canLaunch(url)) {
+                  await launch(url);
+                }
+              }),
           IconButton(
             icon: Icon(bluetoothIcon),
             onPressed: () async {
               await connectDevice(); // デバイスに接続
-              if(isConnected){
+              if (isConnected) {
                 connection.input.listen((Uint8List data) async {
                   showNotification();
-                  SharedPreferences prefs = await SharedPreferences.getInstance();
+                  SharedPreferences prefs =
+                      await SharedPreferences.getInstance();
                   bool doz = await Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (context) => ConfirmScreen(),
                     ),
                   );
-                  if(doz == true){
-                    setState((){
+                  if (doz == true) {
+                    setState(() {
                       DateTime _now = DateTime.now();
-                      dozingData[_now.hour - 1] = DozingPerHour(_now.hour.toString(), (prefs.getInt('${_now.year}/${_now.month}/${_now.day}/${_now.hour}')??0) + 1, Colors.blue);
-                      saveData(_now.year, _now.month, _now.day, _now.hour, (prefs.getInt('${_now.year}/${_now.month}/${_now.day}/${_now.hour}')??0) + 1);
+                      dozingData[_now.hour - 1] = DozingPerHour(
+                          _now.hour.toString(),
+                          (prefs.getInt(
+                                      '${_now.year}/${_now.month}/${_now.day}/${_now.hour}') ??
+                                  0) +
+                              1,
+                          Colors.blue);
+                      saveData(
+                          _now.year,
+                          _now.month,
+                          _now.day,
+                          _now.hour,
+                          (prefs.getInt(
+                                      '${_now.year}/${_now.month}/${_now.day}/${_now.hour}') ??
+                                  0) +
+                              1);
                     });
                   }
                   //接続を解除
@@ -188,11 +214,17 @@ class ChartScreenState extends State<ChartScreen> with TickerProviderStateMixin{
                 calendarController: _controller,
                 onDaySelected: (date, events) async {
                   dozingData = [];
-                  SharedPreferences prefs = await SharedPreferences.getInstance();
-                  setState((){
-                    for(int i = 1; i <= 24; i++){
-                    dozingData.add(DozingPerHour(i.toString(), prefs.getInt('${date.year}/${date.month}/${date.day}/${i}')??0, Colors.blue));
-                  }
+                  SharedPreferences prefs =
+                      await SharedPreferences.getInstance();
+                  setState(() {
+                    for (int i = 1; i <= 24; i++) {
+                      dozingData.add(DozingPerHour(
+                          i.toString(),
+                          prefs.getInt(
+                                  '${date.year}/${date.month}/${date.day}/${i}') ??
+                              0,
+                          Colors.blue));
+                    }
                   });
                 },
               ),
@@ -205,7 +237,8 @@ class ChartScreenState extends State<ChartScreen> with TickerProviderStateMixin{
                       charts.Series(
                         id: 'Dozed Time',
                         domainFn: (dynamic dozingData, _) => dozingData.day,
-                        measureFn: (dynamic dozingData, _) => dozingData.dozingTime,
+                        measureFn: (dynamic dozingData, _) =>
+                            dozingData.dozingTime,
                         colorFn: (dynamic dozingData, _) => dozingData.color,
                         data: dozingData,
                       ),
@@ -220,21 +253,32 @@ class ChartScreenState extends State<ChartScreen> with TickerProviderStateMixin{
       ),
       floatingActionButton: FloatingActionButton(
         child: Icon(Icons.add),
-        onPressed: ()async{
+        onPressed: () async {
           SharedPreferences prefs = await SharedPreferences.getInstance();
           bool doz = await Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => ConfirmScreen(),
-                    ),
-                  );
-                  if(doz == true){
-                    DateTime _now = DateTime.now();
-                    setState((){
-                      if(_now.year == _controller.selectedDay.year && _now.month == _controller.selectedDay.month && _now.day == _controller.selectedDay.day){
-                        dozingData[_now.hour - 1] = DozingPerHour(_now.hour.toString(), dozingData[_now.hour - 1].dozingTime + 1, Colors.blue);
-                      }
-                    });
-                    saveData(_now.year, _now.month, _now.day, _now.hour, (prefs.getInt('${_now.year}/${_now.month}/${_now.day}/${_now.hour}')??0) + 1);
+            MaterialPageRoute(
+              builder: (context) => ConfirmScreen(),
+            ),
+          );
+          if (doz == true) {
+            DateTime _now = DateTime.now();
+            setState(() {
+              if (_now.year == _controller.selectedDay.year &&
+                  _now.month == _controller.selectedDay.month &&
+                  _now.day == _controller.selectedDay.day) {
+                dozingData[_now.hour - 1] = DozingPerHour(_now.hour.toString(),
+                    dozingData[_now.hour - 1].dozingTime + 1, Colors.blue);
+              }
+            });
+            saveData(
+                _now.year,
+                _now.month,
+                _now.day,
+                _now.hour,
+                (prefs.getInt(
+                            '${_now.year}/${_now.month}/${_now.day}/${_now.hour}') ??
+                        0) +
+                    1);
           }
         }
         /*() async {
@@ -246,7 +290,8 @@ class ChartScreenState extends State<ChartScreen> with TickerProviderStateMixin{
             });
           }
           saveData(_now.year, _now.month, _now.day, _now.hour, (prefs.getInt('${_now.year}/${_now.month}/${_now.day}/${_now.hour}')??0) + 1);
-        }*/,
+        }*/
+        ,
       ),
     );
   }
@@ -254,13 +299,13 @@ class ChartScreenState extends State<ChartScreen> with TickerProviderStateMixin{
 
 class ConfirmScreen extends StatelessWidget {
   @override
-  Widget build(BuildContext context){
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('確認'),
         leading: IconButton(
           icon: Icon(Icons.arrow_back),
-          onPressed: (){
+          onPressed: () {
             Navigator.of(context).pop(false);
           },
         ),
@@ -279,7 +324,7 @@ class ConfirmScreen extends StatelessWidget {
                   widthFactor: 1.5,
                   child: RaisedButton(
                     child: Text('はい'),
-                    onPressed: (){
+                    onPressed: () {
                       Navigator.of(context).pop(true);
                     },
                   ),
@@ -288,7 +333,7 @@ class ConfirmScreen extends StatelessWidget {
                   widthFactor: 1.5,
                   child: RaisedButton(
                     child: Text('いいえ'),
-                    onPressed: (){
+                    onPressed: () {
                       Navigator.of(context).pop(false);
                     },
                   ),
@@ -307,32 +352,24 @@ Future<void> saveData(int year, int month, int day, int hour, int value) async {
   prefs.setInt('${year}/${month}/${day}/${hour}', value);
 }
 
-
-
-
-
 class DozingPerHour extends ChangeNotifier {
   final String day;
   final int dozingTime;
   final charts.Color color;
 
   DozingPerHour(this.day, this.dozingTime, Color color)
-    :this.color = charts.Color(
-      r: color.red, g: color.green, b: color.blue, a:color.alpha
-    );
+      : this.color = charts.Color(
+            r: color.red, g: color.green, b: color.blue, a: color.alpha);
 }
 
-
-
-
 Future<void> showNotification() async {
-    var androidPlatformChannelSpecifics = AndroidNotificationDetails(
-        'your channel id', 'your channel name', 'your channel description',
-        importance: Importance.Max, priority: Priority.High, ticker: 'ticker');
-    var iOSPlatformChannelSpecifics = IOSNotificationDetails();
-    var platformChannelSpecifics = NotificationDetails(
-        androidPlatformChannelSpecifics, iOSPlatformChannelSpecifics);
-    await flutterLocalNotificationsPlugin.show(
-        0, 'bigforest', '寝落ちしたかもしれません。起きてください。', platformChannelSpecifics,
-        payload: 'Default_Sound');
+  var androidPlatformChannelSpecifics = AndroidNotificationDetails(
+      'your channel id', 'your channel name', 'your channel description',
+      importance: Importance.Max, priority: Priority.High, ticker: 'ticker');
+  var iOSPlatformChannelSpecifics = IOSNotificationDetails();
+  var platformChannelSpecifics = NotificationDetails(
+      androidPlatformChannelSpecifics, iOSPlatformChannelSpecifics);
+  await flutterLocalNotificationsPlugin.show(
+      0, 'bigforest', '寝落ちしたかもしれません。起きてください。', platformChannelSpecifics,
+      payload: 'Default_Sound');
 }
